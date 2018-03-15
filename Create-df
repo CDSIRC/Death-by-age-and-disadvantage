@@ -1,0 +1,110 @@
+#Remove all objects in Global Environment
+rm(list=ls())
+#Remove all figures
+graphics.off()
+
+#Load all required packages
+library(foreign)
+library(dplyr)
+library(ggplot2)
+library(forcats)
+library(reshape2)
+library(shiny)
+library(stringr)
+library(tidyr)
+library(readxl)
+
+Custom_colours <- c("#CAF2FF", "#606060", "#FAA701")
+
+CDR = read.spss(paste(workingDirectory, dataName, sep = ""), to.data.frame=TRUE)
+
+#Exclude/include cases for various reasons
+#Select only cases of death
+CDR <- subset(CDR, StatusAtEventID == "Death")
+#Select only cases from 2005 onwards
+CDR <- subset(CDR, CDR$Deathyear > 2004)
+#Select only cases before 2017 onwards
+CDR <- subset(CDR, CDR$Deathyear < 2017)
+#Exclude spontanious abortions
+CDR <- subset(CDR, excl_sa_top == "0")
+#Exclude specific cases of SA child residents who died overseas
+CDR <- subset(CDR, CaseNumber != "941")
+CDR <- subset(CDR, CaseNumber != "1370")
+#Select only SA residents because we don't have SEIFA for others
+CDR <- subset(CDR, Usualresidence == "SA")
+#Remove cases that have Pending for CauseOfDeathCategoryIDNEW
+CDR <- subset(CDR, CDR$CauseOfDeathCategoryID != "Pending")
+
+#Collapse Deathagegroup levels the way we want them
+CDR$DeathagegroupNEW <- fct_collapse(CDR$Deathagegroup,
+                                     "Less than 28 days" = c("Less than 1 day", "1 day to less than 1 week", 
+                                                             "1 week to less than 28 days")
+)
+
+#Collapse CauseOfDeathCategoryID levels the way we want them
+CDR$CauseOfDeathCategoryID <- fct_collapse(CDR$CauseOfDeathCategoryID,
+                                           "Accident" = c("Accident", "Accidental"), 
+                                           "Undetermined" = c("Undetermined", "Unascertained")
+)
+
+#Rename levels of DeathagegroupNEW
+CDR$SEIFAquintile_ABS <- droplevels(CDR$SEIFAquintile_ABS)
+# Custom_xticklabels <- c("SEIFA 1\nLeast disadvantage", "SEIFA 2\nLess disadvantage", "SEIFA 3\nMiddle Disadvantage", "SEIFA 4\nMore disadvantage", "SEIFA 5\nMost disadvantage")
+levels(CDR$SEIFAquintile_ABS)[1] <- "SEIFA 1\nLeast disadvantage"
+levels(CDR$SEIFAquintile_ABS)[2] <- "SEIFA 2\nLess disadvantage"
+levels(CDR$SEIFAquintile_ABS)[3] <- "SEIFA 3\nMiddle Disadvantage"
+levels(CDR$SEIFAquintile_ABS)[4] <- "SEIFA 4\nMore disadvantage"
+levels(CDR$SEIFAquintile_ABS)[5] <- "SEIFA 5\nMost disadvantage"
+
+levels(CDR$DeathagegroupNEW)[1] <- "Less than\n28 days"
+levels(CDR$DeathagegroupNEW)[2] <- "28 days to\n365 days"
+levels(CDR$DeathagegroupNEW)[3] <- "1 to 4\nyears"
+levels(CDR$DeathagegroupNEW)[4] <- "5 to 9\nyears"
+levels(CDR$DeathagegroupNEW)[5] <- "10 to 14\nyears"
+levels(CDR$DeathagegroupNEW)[6] <- "15 to 17\nyears"
+
+levels(CDR$CauseOfDeathCategoryID)[11] <- "Neglect"
+levels(CDR$CauseOfDeathCategoryID)[4] <- "A deliberate act by another"
+levels(CDR$CauseOfDeathCategoryID)[10] <- "Health-system related"
+
+#Remove levels we dont' want
+CDR$CauseOfDeathCategoryID <- droplevels(CDR$CauseOfDeathCategoryID)
+
+#Fix the 18 cases that don't have matching postcodes
+levels(CDR$Postcode) <- sub("5001", "5000", levels(CDR$Postcode)) #Address is a street address in Adeliade.
+levels(CDR$Postcode) <- sub("5742", "5724", levels(CDR$Postcode)) #Address is Indulkana.
+levels(CDR$Postcode) <- sub("5733", "5731", levels(CDR$Postcode)) #Address is Maree which is not in the ABS concordance. Changed to the nearest location in the ABS concordance: Lyndhurst.
+levels(CDR$Postcode) <- sub("5418", "5417", levels(CDR$Postcode)) #Address is Mt. Bryan which is not in the ABS concordance. Changed to the nearest location in the ABS concordance: Burra.
+levels(CDR$Postcode) <- sub("5999", "5417", levels(CDR$Postcode)) #This postcode seems to have been used for cases that were in the far north of South Australia and did not have a postcode on the death certificate. Changed to the nearest location in the ABS concordance: Marla.
+
+#Import SEIFA
+SEIFA_from_ABS_headings <- read_excel("...\\SEIFA_from_ABS_headings.xlsx") #Downloaded from http://stat.data.abs.gov.au/Index.aspx?DataSetCode=SEIFA_SSC
+
+names(CDR)[names(CDR)=="Postcode"] <- "Postal Area Code"
+SEIFA_from_ABS_headings$`Postal Area Code` <- as.factor(SEIFA_from_ABS_headings$`Postal Area Code`)
+
+CDR <- left_join(CDR, SEIFA_from_ABS_headings, by = "Postal Area Code")
+
+CDR$National_quintile <- fct_collapse(as.factor(CDR$`Rank within Australia - Decile`), 
+                                                        "1" = c("1", "2"), 
+                                                        "2" = c("3", "4"), 
+                                                        "3" = c("5", "6"), 
+                                                        "4" = c("7", "8"), 
+                                                        "5" = c("9", "10")
+)
+
+levels(CDR$National_quintile) <- sub("5", "SEIFA 5\nMost advantaged", levels(CDR$National_quintile))
+levels(CDR$National_quintile) <- sub("4", "SEIFA 4\nLess advantaged", levels(CDR$National_quintile))
+levels(CDR$National_quintile) <- sub("3", "SEIFA 3\nMiddle advantage and disadvantage", levels(CDR$National_quintile))
+levels(CDR$National_quintile) <- sub("2", "SEIFA 2\nLess disadvantage", levels(CDR$National_quintile))
+levels(CDR$National_quintile) <- sub("1", "SEIFA 1\nMost disadvantage", levels(CDR$National_quintile))
+
+Cause_Age_SEIFA <- subset(CDR, select=c("CauseOfDeathCategoryID", "DeathagegroupNEW", "National_quintile"))
+
+freqTable <- count(Cause_Age_SEIFA, CauseOfDeathCategoryID, DeathagegroupNEW, National_quintile)
+
+Death_disadvantage_df <- complete(freqTable, CauseOfDeathCategoryID, DeathagegroupNEW, National_quintile, fill = list(n = 0))
+
+Death_disadvantage_df <- rename(Death_disadvantage_df, "Category of death" = CauseOfDeathCategoryID, 
+       "Age group" = DeathagegroupNEW, "SEIFA Quintile" = National_quintile, 
+       "Number of deaths" = n)
