@@ -1,0 +1,70 @@
+Server
+```
+library(ggplot2)
+library(shiny)
+library(png)
+library(grid)
+
+Death_disadvantage_df <- readRDS(file = "Death_disadvantage_df_saved.rds")
+
+shinyServer(function(input, output) {
+  
+  # Define server logic to read selected file ----
+  Custom_colours <- readRDS(file = "Custom_colours_saved.rds")
+  
+  # Fill in the spot we created for a plot
+  output$valleyPlot <- renderPlot({
+    
+    #Create the frequency table
+    category <- input$category
+    freqTable <- Death_disadvantage_df[Death_disadvantage_df$`Category of death` == category, ]
+    
+    #Plot it
+    ggplot(data = freqTable, aes(y = `SEIFA Quintile`, x = `Age group`, fill = `Number of deaths`)) +
+      geom_tile() + 
+      labs(caption = "Child Death and Serious Injury Review Committee\nSouth Australia",  y = "", subtitle = "SEIFA Quintile") + #x = Custom_ylabel, fill = Custom_filllabel, 
+      scale_fill_gradient(low = Custom_colours[1], high = Custom_colours[3]) + 
+      theme_bw() +
+      theme(panel.border = element_blank(),
+            plot.caption = element_text(size = rel(1.2), colour = "dodgerblue", hjust = 0.5), 
+            plot.subtitle = element_text(hjust = -0.25)) +
+      coord_equal()
+    
+  })
+  
+  # Downloadable csv of selected dataset ----
+  output$downloadData <- downloadHandler(
+    filename = "Death_and_disadvantage_data.csv",
+    content = function(file) {
+      write.csv(Death_disadvantage_df, file, row.names = FALSE)
+    }, 
+    contentType = "text/csv"
+  )
+  
+})
+```
+UI
+```
+Death_disadvantage_df <- readRDS(file = "Death_disadvantage_df_saved.rds")
+
+shinyUI(fluidPage(    
+  
+  #   # Define the sidebar with one input
+  #   sidebarPanel(
+  selectInput("category", "Category of death:", 
+              choices = levels(Death_disadvantage_df$`Category of death`),
+              selectize = FALSE),
+  
+  # Create a spot for the barplot
+  plotOutput("valleyPlot"),
+  # Links
+  downloadLink("downloadData", "Get the data"), 
+  helpText(a("Get the code", href = "https://github.com/CDSIRC/Death-by-age-and-disadvantage", target = "_blank"))
+  
+)
+)
+```
+App
+```
+shinyApp(ui, server)
+```
